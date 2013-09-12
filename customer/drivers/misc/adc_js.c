@@ -212,27 +212,27 @@ static void js_report(struct kp *kp, long value, int id)
 	if (id == 2) {
 		if (value == 0) {
 			if (kp->js_flag[2]) {
-				//input_report_abs(kp->input_joystick, ABS_RX, 0);
-				input_report_abs(kp->input_joystick, ABS_Z, 0);
+				input_report_abs(kp->input_joystick, ABS_RX, 0);
+				//input_report_abs(kp->input_joystick, ABS_Z, 0);
 				kp->js_flag[2] = 0;
 			}
 		} else {
 			kp->js_flag[2] = 1;
-			//input_report_abs(kp->input_joystick, ABS_RX, value);
-			input_report_abs(kp->input_joystick, ABS_Z, value);
+			input_report_abs(kp->input_joystick, ABS_RX, value);
+			//input_report_abs(kp->input_joystick, ABS_Z, value);
 		}
 	}
 	if (id == 5) {
 		if (value == 0) {
 			if (kp->js_flag[5]) {
-				//input_report_abs(kp->input_joystick, ABS_RY, 0);
-				input_report_abs(kp->input_joystick, ABS_RZ, 0);
+				input_report_abs(kp->input_joystick, ABS_RY, 0);
+				//input_report_abs(kp->input_joystick, ABS_RZ, 0);
 				kp->js_flag[5] = 0;
 			}
 		} else {
 			kp->js_flag[5] = 1;
-			//input_report_abs(kp->input_joystick, ABS_RY, value);
-			input_report_abs(kp->input_joystick, ABS_RZ, value);
+			input_report_abs(kp->input_joystick, ABS_RY, value);
+			//input_report_abs(kp->input_joystick, ABS_RZ, value);
 		}
 	}
 }
@@ -921,10 +921,10 @@ static int __devinit adc_probe(struct platform_device *pdev)
 	set_bit(EV_SYN, kp->input_joystick->evbit);
 	input_set_abs_params(kp->input_joystick, ABS_X, -256, 255, 0, 0);
 	input_set_abs_params(kp->input_joystick, ABS_Y, -256, 255, 0, 0);
-	//input_set_abs_params(kp->input_joystick, ABS_RX, -256, 255, 0, 0);
-	//input_set_abs_params(kp->input_joystick, ABS_RY, -256, 255, 0, 0);
-	input_set_abs_params(kp->input_joystick, ABS_Z, -256, 255, 0, 0);
-	input_set_abs_params(kp->input_joystick, ABS_RZ, -256, 255, 0, 0);
+	input_set_abs_params(kp->input_joystick, ABS_RX, -256, 255, 0, 0);
+	input_set_abs_params(kp->input_joystick, ABS_RY, -256, 255, 0, 0);
+	//input_set_abs_params(kp->input_joystick, ABS_Z, -256, 255, 0, 0);
+	//input_set_abs_params(kp->input_joystick, ABS_RZ, -256, 255, 0, 0);
 
 	kp->input_joystick->name = "ADC joystick";
 	kp->input_joystick->rep[REP_DELAY]=0xffffffff;

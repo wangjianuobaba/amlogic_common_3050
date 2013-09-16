@@ -46,7 +46,7 @@ static DEFINE_SPINLOCK(clockfw_lock);
 static DEFINE_MUTEX(clock_ops_lock);
 
 static unsigned int mali_max = 400000;
-static unsigned int freq_limit = 1;
+static unsigned int freq_limit = 0;
 
 static int set_sys_pll(struct clk *clk, unsigned long src, unsigned long dst, unsigned * scale_divn);
 #define IS_CLK_ERR(a)  (IS_ERR(a) || a == 0)
@@ -1040,7 +1040,7 @@ static int clk_set_rate_a9(struct clk *clk, unsigned long rate)
 #if defined(CONFIG_MESON_POWER_PROFILE_LOW)
     #define CPU_FREQ_LIMIT 600000000
 #else
-    #define CPU_FREQ_LIMIT 1200000000
+    #define CPU_FREQ_LIMIT 1512000000
 #endif
 
 	if(freq_limit && rate > CPU_FREQ_LIMIT)
@@ -1514,7 +1514,7 @@ static unsigned sys_pll_settings[][6] = {
 	{0x84237, M6_SYS_PLL_CNTL_2, M6_SYS_PLL_CNTL_3, M6_SYS_PLL_CNTL_4, 0},  // 1488
 	{0x88237, M6_SYS_PLL_CNTL_2, M6_SYS_PLL_CNTL_3, M6_SYS_PLL_CNTL_4, 0},  // 1512
 };
-static unsigned setup_a9_clk_max=1368000000;
+static unsigned setup_a9_clk_max=1512000000;
 static unsigned setup_a9_clk_min=48000000;
 static int __init a9_clk_max(char *str)
 {

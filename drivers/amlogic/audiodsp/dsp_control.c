@@ -25,9 +25,12 @@
 #define MIN_CACHE_ALIGN(x)	(((x-4)&(~0x1f)))
 #define MAX_CACHE_ALIGN(x)	((x+0x1f)&(~0x1f))
 
+#ifndef AUD_ARC_CTL
+#define AUD_ARC_CTL MEDIA_CPU_CTL
+#endif
+
 extern unsigned IEC958_mode_raw;
 extern unsigned IEC958_mode_codec;
-extern unsigned audioin_mode;
 
 int decopt = 0x0000fffb;
 int subid  = 0x0;
@@ -39,9 +42,8 @@ static void	enable_dsp(int flag)
 	int xtal = 0;
 
 	/* RESET DSP */
-
 	 if(!flag)
-	  	 CLEAR_MPEG_REG_MASK(MEDIA_CPU_CTL, 1);
+	  	 CLEAR_MPEG_REG_MASK(AUD_ARC_CTL, 1);
 	/*write more for make the dsp is realy reset!*/
 	 SET_MPEG_REG_MASK(RESET2_REGISTER, RESET_AUD_ARC);
 	// M1 has this bug also????
@@ -54,8 +56,8 @@ static void	enable_dsp(int flag)
     	/* polling highest bit of IREG_DDR_CTRL until the mapping is done */
 	
         if (flag) {
-		    SET_MPEG_REG_MASK(MEDIA_CPU_CTL, 1);
-		    CLEAR_MPEG_REG_MASK(MEDIA_CPU_CTL, 1);
+		    SET_MPEG_REG_MASK(AUD_ARC_CTL, 1);
+		    CLEAR_MPEG_REG_MASK(AUD_ARC_CTL, 1);
 		    clk=clk_get_sys("a9_clk", NULL);
 		    if(!clk)
 			{
@@ -71,10 +73,13 @@ static void	enable_dsp(int flag)
 
 void halt_dsp( struct audiodsp_priv *priv)
 {
+#ifndef AUDIODSP_RESET
+    int i;
+#endif
+
 	if(DSP_RD(DSP_STATUS)==DSP_STATUS_RUNING)
 		{
 #ifndef AUDIODSP_RESET
-		int i;
 		dsp_mailbox_send(priv,1,M2B_IRQ0_DSP_SLEEP,0,0,0);
         for(i = 0; i< 100;i++)
             {
@@ -112,13 +117,10 @@ void reset_dsp( struct audiodsp_priv *priv)
 
     //flush_and_inv_dcache_all();
     /* map DSP 0 address so that reset vector points to same vector table as ARC1 */
-    CLEAR_MPEG_REG_MASK(MEDIA_CPU_CTL, (0xfff << 4));
+    CLEAR_MPEG_REG_MASK(AUD_ARC_CTL, (0xfff << 4));
  //   SET_MPEG_REG_MASK(SDRAM_CTL0,1);//arc mapping to ddr memory
-    SET_MPEG_REG_MASK(MEDIA_CPU_CTL, ((AUDIO_DSP_START_PHY_ADDR)>> 20) << 4);
+    SET_MPEG_REG_MASK(AUD_ARC_CTL, ((AUDIO_DSP_START_PHY_ADDR)>> 20) << 4);
 // decode option    
-    if(audioin_mode &2){
-		decopt &= ~(1<<6);
-    }
     if(IEC958_mode_codec){
       if(IEC958_mode_codec == 4){//dd+
 		DSP_WD(DSP_DECODE_OPTION, decopt|(3<<30));
@@ -132,7 +134,7 @@ void reset_dsp( struct audiodsp_priv *priv)
     
     DSP_WD(DSP_CHIP_SUBID, subid);
 
-    printk("reset dsp : dec opt=%x, subid=%x\n", DSP_RD(DSP_DECODE_OPTION), DSP_RD(DSP_CHIP_SUBID));
+    printk("reset dsp : dec opt=%lx, subid=%lx\n", DSP_RD(DSP_DECODE_OPTION), DSP_RD(DSP_CHIP_SUBID));
     if(!priv->dsp_is_started){
         DSP_PRNT("dsp reset now\n");
         enable_dsp(1);
@@ -330,9 +332,7 @@ exit:
 /**
  *	bit31 - digital raw output
  *	bit30 - IEC61937 pass over HDMI
- *    bit 6  -  audio in mode.
- 		     00: spdif in mode
- 		     01: i2s in mode
+
  *    bit 5 - DTS passthrough working mode
  		     00:  AIU 958 hw search raw mode 
  		     01:  PCM_RAW mode,the same as AC3/AC3+

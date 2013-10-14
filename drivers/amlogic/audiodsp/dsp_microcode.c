@@ -8,7 +8,7 @@
 #include <linux/fs.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
-#include <mach/am_regs.h>
+
 //#include <asm/dsp/audiodsp_control.h>
 #include "audiodsp_control.h"
 
@@ -95,7 +95,7 @@ static struct audiodsp_microcode *  audiodsp_find_mcode_by_name(struct audiodsp_
 		}
     if(priv->dsp_is_started)
 #ifndef AUDIODSP_RESET
-        dsp_code_text_start = 0x1000;//after dsp is running,only load from the text section of the microcode.
+        dsp_code_text_start = 0x800;//after dsp is running,only load from the text section of the microcode.
 #else
 	 dsp_code_text_start = 0;
 #endif /* AUDIODSP_RESET */

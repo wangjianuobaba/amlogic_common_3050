@@ -166,11 +166,6 @@ static ssize_t amstream_sub_write
  size_t count, loff_t * ppos);
 static unsigned int amstream_sub_poll
 (struct file *file, poll_table *wait_table);
-static unsigned int amstream_userdata_poll
-(struct file *file, poll_table *wait_table);
-static ssize_t amstream_userdata_read
-(struct file *file, char *buf,
- size_t count, loff_t * ppos);
 static int (*amstream_vdec_status)
 (struct vdec_status *vstatus);
 static int (*amstream_adec_status)
@@ -238,14 +233,6 @@ const static struct file_operations sub_read_fops = {
     .unlocked_ioctl    = amstream_ioctl,
 };
 
-const static struct file_operations userdata_fops = {
-    .owner    = THIS_MODULE,
-    .open     = amstream_open,
-    .release  = amstream_release,
-    .read     = amstream_userdata_read,
-    .poll     = amstream_userdata_poll,
-    .unlocked_ioctl    = amstream_ioctl,
-};
 const static struct file_operations amstream_fops = {
     .owner    = THIS_MODULE,
     .open     = amstream_open,
@@ -264,8 +251,6 @@ static int sub_type;
 static int sub_port_inited;
 /* wait queue for poll */
 static wait_queue_head_t amstream_sub_wait;
-atomic_t userdata_ready = ATOMIC_INIT(0);
-static wait_queue_head_t amstream_userdata_wait;
 
 static stream_port_t ports[] = {
     {
@@ -302,11 +287,6 @@ static stream_port_t ports[] = {
         .name  = "amstream_sub_read",
         .type  = PORT_TYPE_SUB_RD,
         .fops  = &sub_read_fops,
-    },
-    {
-        .name  = "amstream_userdata",
-        .type  = PORT_TYPE_USERDATA,
-        .fops  = &userdata_fops,
     }
 };
 
@@ -332,13 +312,6 @@ static stream_buf_t bufs[BUF_MAX_NUM] = {
         .buf_size = 0,
         .first_tstamp = INVALID_PTS
 
-    },
-    {
-        .reg_base = 0,
-        .type = BUF_TYPE_USERDATA,
-        .buf_start = 0,
-        .buf_size = 0,
-        .first_tstamp = INVALID_PTS
     }
 };
 void set_sample_rate_info(int arg)
@@ -571,7 +544,6 @@ static  int amstream_port_init(stream_port_t *port)
     stream_buf_t *pvbuf = &bufs[BUF_TYPE_VIDEO];
     stream_buf_t *pabuf = &bufs[BUF_TYPE_AUDIO];
     stream_buf_t *psbuf = &bufs[BUF_TYPE_SUBTITLE];
-    stream_buf_t *pubuf = &bufs[BUF_TYPE_USERDATA];
 
     if ((port->type & PORT_TYPE_AUDIO) && (port->flag & PORT_FLAG_AFORMAT)) {
         r = audio_port_init(port, pabuf);
@@ -581,10 +553,6 @@ static  int amstream_port_init(stream_port_t *port)
         }
     }
     if ((port->type & PORT_TYPE_VIDEO) && (port->flag & PORT_FLAG_VFORMAT)) {
-		pubuf->buf_size = 0;
-		pubuf->buf_start = 0;
-		pubuf->buf_wp = 0;
-		pubuf->buf_rp = 0;
         r = video_port_init(port, pvbuf);
         if (r < 0) {
             printk("video_port_init  failed\n");
@@ -900,68 +868,6 @@ static unsigned int amstream_sub_poll(struct file *file, poll_table *wait_table)
     return 0;
 }
 
-int wakeup_userdata_poll(int wp, int start_phyaddr, int buf_size)
-{
-    stream_buf_t *userdata_buf = &bufs[BUF_TYPE_USERDATA];
-	userdata_buf->buf_start= start_phyaddr;
-	userdata_buf->buf_wp = wp;
-	userdata_buf->buf_size = buf_size;
-    atomic_set(&userdata_ready, 1);
-    wake_up_interruptible(&amstream_userdata_wait);
-    return userdata_buf->buf_rp;
-}
-static unsigned int amstream_userdata_poll(struct file *file, poll_table *wait_table)
-{
-    poll_wait(file, &amstream_userdata_wait, wait_table);
-    if (atomic_read(&userdata_ready)) {
-        atomic_set(&userdata_ready, 0);
-        return POLLIN | POLLRDNORM;
-    }
-    return 0;
-}
-static ssize_t amstream_userdata_read(struct file *file, char __user *buf, size_t count, loff_t * ppos)
-{
-    u32  data_size, res, retVal = 0, buf_wp;
-    stream_buf_t *userdata_buf = &bufs[BUF_TYPE_USERDATA];
-    buf_wp = userdata_buf->buf_wp;
-    if (userdata_buf->buf_start == 0 || userdata_buf->buf_size == 0) {
-        return 0;
-    }
-    if (buf_wp == userdata_buf->buf_rp) {
-        return 0;
-    }
-    if (buf_wp > userdata_buf->buf_rp) {
-        data_size = buf_wp - userdata_buf->buf_rp;
-    } else {
-        data_size = userdata_buf->buf_size - userdata_buf->buf_rp + buf_wp;
-    }
-    if (data_size > count) {
-        data_size = count;
-    }
-    if (buf_wp < userdata_buf->buf_rp) {
-        int first_num = userdata_buf->buf_size - userdata_buf->buf_rp ;
-        if (data_size <= first_num) {
-            res = copy_to_user((void *)buf, (void *)(phys_to_virt(userdata_buf->buf_rp + userdata_buf->buf_start)), data_size);
-            userdata_buf->buf_rp +=  data_size - res;
-            retVal =  data_size - res;
-        } else {
-            if (first_num > 0) {
-                res = copy_to_user((void *)buf, (void *)(phys_to_virt(userdata_buf->buf_rp + userdata_buf->buf_start)), first_num);
-               userdata_buf->buf_rp += first_num - res;
-                retVal = first_num - res;
-            }	else	{
-            res = copy_to_user((void *)buf, (void *)(phys_to_virt(userdata_buf->buf_start)), data_size - first_num);
-		userdata_buf->buf_rp =  data_size - first_num - res;
-            retVal =  data_size - first_num - res;
-            }
-        }
-    } else {
-        res = copy_to_user((void *)buf, (void *)(phys_to_virt(userdata_buf->buf_rp + userdata_buf->buf_start)), data_size);
-	userdata_buf->buf_rp +=  data_size - res;
-        retVal = data_size - res;
-    }
-	return retVal;
-}
 static int amstream_open(struct inode *inode, struct file *file)
 {
     s32 i;
@@ -1418,7 +1324,60 @@ static long amstream_ioctl(struct file *file,
     case AMSTREAM_IOC_SET_DEMUX:
         tsdemux_set_demux((int)arg);
         break;
-
+	case AMSTREAM_IOC_SET_VIDEO_DELAY_LIMIT_MS:
+        bufs[BUF_TYPE_VIDEO].max_buffer_delay_ms = (int)arg;
+        break;
+	case AMSTREAM_IOC_SET_AUDIO_DELAY_LIMIT_MS:
+        bufs[BUF_TYPE_AUDIO].max_buffer_delay_ms = (int)arg;
+        break;
+	case AMSTREAM_IOC_GET_VIDEO_DELAY_LIMIT_MS:
+        put_user(bufs[BUF_TYPE_VIDEO].max_buffer_delay_ms,(int *)arg);
+        break;
+	case AMSTREAM_IOC_GET_AUDIO_DELAY_LIMIT_MS:
+        put_user(bufs[BUF_TYPE_AUDIO].max_buffer_delay_ms,(int *)arg);
+        break;		
+	case AMSTREAM_IOC_GET_VIDEO_CUR_DELAY_MS:
+		{
+		int delay;
+		delay=calculation_stream_delayed_ms(PTS_TYPE_VIDEO,NULL,NULL);
+		if(delay>=0)
+			put_user(delay,(int *)arg);
+		else 
+			put_user(0,(int *)arg);
+        break;
+		}
+	case AMSTREAM_IOC_GET_AUDIO_CUR_DELAY_MS:
+		{
+		int delay;
+		delay=calculation_stream_delayed_ms(PTS_TYPE_AUDIO,NULL,NULL);
+		if(delay>=0)
+			put_user(delay,(int *)arg);
+		else 
+			put_user(0,(int *)arg);
+        break;
+		}
+	case AMSTREAM_IOC_GET_AUDIO_AVG_BITRATE_BPS:
+		{
+		int delay;
+		u32 avgbps;
+		delay=calculation_stream_delayed_ms(PTS_TYPE_AUDIO,NULL,&avgbps);
+		if(delay>=0)
+			put_user(avgbps,(int *)arg);
+		else 
+			put_user(0,(int *)arg);
+        break;
+		}
+	case AMSTREAM_IOC_GET_VIDEO_AVG_BITRATE_BPS:
+		{
+		int delay;
+		u32 avgbps;
+		delay=calculation_stream_delayed_ms(PTS_TYPE_VIDEO,NULL,&avgbps);
+		if(delay>=0)
+			put_user(avgbps,(int *)arg);
+		else 
+			put_user(0,(int *)arg);
+        break;		
+		}
     default:
         r = -ENOIOCTLCMD;
         break;
@@ -1461,9 +1420,6 @@ static ssize_t ports_show(struct class *class, struct class_attribute *attr, cha
         }
         if (p->type & PORT_TYPE_SUB_RD) {
             pbuf += sprintf(pbuf, "%s ", "Subtitle_Read");
-        }
-        if (p->type & PORT_TYPE_USERDATA) {
-            pbuf += sprintf(pbuf, "%s ", "userdata");
         }
         pbuf += sprintf(pbuf, ")\n");
         /*flag*/
@@ -1559,8 +1515,18 @@ static ssize_t bufs_show(struct class *class, struct class_attribute *attr, char
         }
 
         pbuf += sprintf(pbuf, "\tbuf first_stamp:%#x\n", p->first_tstamp);
-
         pbuf += sprintf(pbuf, "\tbuf wcnt:%#x\n\n", p->wcnt);
+		
+		pbuf += sprintf(pbuf, "\tbuf max_buffer_delay_ms:%dms\n", p->max_buffer_delay_ms);
+		{
+			int calc_delayms=0;
+			u32 bitrate=0,avg_bitrate=0;
+			calc_delayms=calculation_stream_delayed_ms(p->type,&bitrate,&avg_bitrate);
+			if(calc_delayms>0){
+		    	pbuf += sprintf(pbuf, "\tbuf current delay:%dms\n",calc_delayms);
+		    	pbuf += sprintf(pbuf, "\tbuf bitrate latest:%dbps,avg:%dbps\n",bitrate,avg_bitrate);
+			}
+		}
     }
     return pbuf - buf;
 }
@@ -1609,12 +1575,37 @@ static ssize_t store_canuse_buferlevel(struct class *class, struct class_attribu
     reset_canuse_buferlevel(val);
     return size;
 }
+static ssize_t store_maxdelay(struct class *class, struct class_attribute *attr, const char *buf, size_t size)
+
+{
+    unsigned val;
+    ssize_t ret;
+	int i;
+
+    ret = sscanf(buf, "%d", &val);     
+    if(ret != 1 ) {
+        return -EINVAL;
+    }  
+	for (i = 0; i < sizeof(bufs) / sizeof(stream_buf_t); i++) {
+		bufs[i].max_buffer_delay_ms=val;
+	}
+    return size;
+}
+static ssize_t show_maxdelay(struct class *class, struct class_attribute *attr, char *buf)
+{
+    ssize_t size=0;
+	size+=sprintf(buf, "%dms	//video max buffered data delay ms\n",bufs[0].max_buffer_delay_ms);
+	size+=sprintf(buf, "%dms	//audio max buffered data delay ms\n",bufs[1].max_buffer_delay_ms);
+    return size;
+}
+
 
 static struct class_attribute amstream_class_attrs[] = {
     __ATTR_RO(ports),
     __ATTR_RO(bufs),
     __ATTR_RO(vcodec_profile),
     __ATTR(canuse_buferlevel, S_IRUGO | S_IWUSR | S_IWGRP, show_canuse_buferlevel, store_canuse_buferlevel),
+    __ATTR(max_buffer_delay_ms, S_IRUGO | S_IWUSR | S_IWGRP, show_maxdelay, store_maxdelay),
     __ATTR_NULL
 };
 static struct class amstream_class = {
@@ -1706,7 +1697,6 @@ static int  amstream_probe(struct platform_device *pdev)
         goto error7;
     }
     init_waitqueue_head(&amstream_sub_wait);
-    init_waitqueue_head(&amstream_userdata_wait);
     reset_canuse_buferlevel(10000);
     return 0;
 

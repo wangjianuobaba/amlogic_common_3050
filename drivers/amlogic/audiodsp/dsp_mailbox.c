@@ -20,30 +20,12 @@
 #include <linux/amports/timestamp.h>
 #include "dsp_mailbox.h"
 #include "dsp_codec.h"
-extern void set_pcminfo_data(void * pcm_encoded_info);
+
 static void audiodsp_mailbox_work_queue(struct work_struct*);
 static struct audiodsp_work_t{
 char* buf;
 struct work_struct audiodsp_workqueue;
 }audiodsp_work;
-
-extern unsigned int IEC958_bpf;
-extern unsigned int IEC958_brst;
-extern unsigned int IEC958_length;
-extern unsigned int IEC958_padsize;
-extern unsigned int IEC958_mode;
-extern unsigned int IEC958_syncword1;
-extern unsigned int IEC958_syncword2;
-extern unsigned int IEC958_syncword3;
-extern unsigned int IEC958_syncword1_mask;
-extern unsigned int IEC958_syncword2_mask;
-extern unsigned int IEC958_syncword3_mask;
-extern unsigned int IEC958_chstat0_l;
-extern unsigned int IEC958_chstat0_r;
-extern unsigned int IEC958_chstat1_l;
-extern unsigned int IEC958_chstat1_r;
-extern unsigned int IEC958_mode_raw;
-extern unsigned int IEC958_mode_codec;
 
 int dsp_mailbox_send(struct audiodsp_priv *priv,int overwrite,int num,int cmd,const char *data,int len)
 {
@@ -67,7 +49,7 @@ int dsp_mailbox_send(struct audiodsp_priv *priv,int overwrite,int num,int cmd,co
 		{
 			buf_map = dma_map_single(NULL, (void *)data, len, DMA_TO_DEVICE);
 			dma_unmap_single(NULL, buf_map, len, DMA_TO_DEVICE);
-    		}
+    	}
 		MAIBOX2_IRQ_ENABLE(num);
 		DSP_TRIGGER_IRQ(num);
 		res=0;
@@ -91,7 +73,7 @@ int get_mailbox_data(struct audiodsp_priv *priv,int num,struct mail_msg *msg)
     //dma_unmap_single(priv->dev,dsp_addr_map,sizeof(*m),DMA_FROM_DEVICE);
 	msg->cmd=m->cmd; 
 	msg->data=m->data;
-  msg->data = (char *)((unsigned)msg->data+AUDIO_DSP_START_ADDR);
+    msg->data = (char *)((unsigned)msg->data+AUDIO_DSP_START_ADDR);
 	msg->status=m->status;
 	msg->len=m->len;
 	if(msg->len && msg->data != NULL){
@@ -109,13 +91,13 @@ static irqreturn_t audiodsp_mailbox_irq(int irq, void *data)
 	struct audiodsp_priv *priv=(struct audiodsp_priv *)data;
 	unsigned long status,fiq_mask;
 	struct mail_msg msg;
-	int i = 0;
+	int i = 0,ret=0;
 	status=READ_VREG(MB1_REG);
 	fiq_mask=READ_VREG(MB1_SEL);
 	status=status&fiq_mask;
 	if(status&(1<<M1B_IRQ0_PRINT))
 		{
-		get_mailbox_data(priv,M1B_IRQ0_PRINT,&msg);
+		ret=get_mailbox_data(priv,M1B_IRQ0_PRINT,&msg);
 		SYS_CLEAR_IRQ(M1B_IRQ0_PRINT);
 	//	inv_dcache_range((unsigned  long )msg.data,(unsigned long)msg.data+msg.len);
 	
@@ -142,7 +124,7 @@ static irqreturn_t audiodsp_mailbox_irq(int irq, void *data)
 		{
 		struct frame_info *info;
 		SYS_CLEAR_IRQ(M1B_IRQ4_DECODE_FINISH_FRAME);
-		get_mailbox_data(priv,M1B_IRQ4_DECODE_FINISH_FRAME,&msg);
+		ret=get_mailbox_data(priv,M1B_IRQ4_DECODE_FINISH_FRAME,&msg);
 		info=(struct frame_info *)msg.data;
 		if(info!=NULL)
 			{
@@ -156,7 +138,7 @@ static irqreturn_t audiodsp_mailbox_irq(int irq, void *data)
 		{
 		struct frame_fmt *fmt;
 		SYS_CLEAR_IRQ(M1B_IRQ5_STREAM_FMT_CHANGED);
-		get_mailbox_data(priv,M1B_IRQ5_STREAM_FMT_CHANGED,&msg);
+		ret=get_mailbox_data(priv,M1B_IRQ5_STREAM_FMT_CHANGED,&msg);
 		fmt=(void *)msg.data;
 		//DSP_PRNT("frame format changed");
 		if(fmt==NULL || (sizeof(struct frame_fmt )<msg.len))
@@ -187,43 +169,11 @@ static irqreturn_t audiodsp_mailbox_irq(int irq, void *data)
 				priv->frame_format.valid|=DATA_WIDTH_VALID;
 				}
 			}
-			if(fmt->data.pcm_encoded_info){
-				set_pcminfo_data(fmt->data.pcm_encoded_info);
-			}
-			DSP_PRNT("audio info from dsp:sample_rate=%d channel_num=%d\n",priv->frame_format.sample_rate,priv->frame_format.channel_num);
 		}
-        if(status & (1<<M1B_IRQ8_IEC958_INFO)){
-            struct digit_raw_output_info* info;
-            SYS_CLEAR_IRQ(M1B_IRQ8_IEC958_INFO);
-            get_mailbox_data(priv, M1B_IRQ8_IEC958_INFO, &msg);
-            info = (void*)msg.data;
-#if 1
-            IEC958_bpf = info->bpf;
-            IEC958_brst = info->brst;
-            IEC958_length = info->length;
-            IEC958_padsize = info->padsize;
-            IEC958_mode = info->mode;
-            IEC958_syncword1 = info->syncword1;
-            IEC958_syncword2 = info->syncword2;
-            IEC958_syncword3 = info->syncword3;
-            IEC958_syncword1_mask = info->syncword1_mask;
-            IEC958_syncword2_mask = info->syncword2_mask;
-            IEC958_syncword3_mask = info->syncword3_mask;
-            IEC958_chstat0_l = info->chstat0_l;
-            IEC958_chstat0_r = info->chstat0_r;
-            IEC958_chstat1_l = info->chstat1_l;
-            IEC958_chstat1_r = info->chstat1_r;
-#endif			
-  //          IEC958_mode_codec = info->can_bypass;
-            
-            DSP_PRNT( "MAILBOX: got IEC958 info\n");
-            //schedule_work(&audiodsp_work.audiodsp_workqueue);		
-        }
-
     	if(status& (1<<M1B_IRQ5_STREAM_RD_WD_TEST)){
             DSP_WD((0x84100000-4096+20*20),0);
     		SYS_CLEAR_IRQ(M1B_IRQ5_STREAM_RD_WD_TEST);
-    		get_mailbox_data(priv,M1B_IRQ5_STREAM_RD_WD_TEST,&msg);
+    		ret=get_mailbox_data(priv,M1B_IRQ5_STREAM_RD_WD_TEST,&msg);
             
             for(i = 0;i<12;i++){
                 if((DSP_RD((0x84100000-512*1024+i*20)))!= (0xff00|i)){
@@ -245,7 +195,7 @@ static irqreturn_t audiodsp_mailbox_irq(int irq, void *data)
 		int err_code;
 		
 		SYS_CLEAR_IRQ(M1B_IRQ7_DECODE_FATAL_ERR);
-		get_mailbox_data(priv,M1B_IRQ7_DECODE_FATAL_ERR,&msg);
+		ret=get_mailbox_data(priv,M1B_IRQ7_DECODE_FATAL_ERR,&msg);
 
 		err_code = msg.cmd;
 		priv->decode_fatal_err = err_code;

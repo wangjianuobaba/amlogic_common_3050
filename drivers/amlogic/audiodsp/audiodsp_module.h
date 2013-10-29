@@ -70,8 +70,7 @@
 
 struct audiodsp_priv *audiodsp_privdata(void);
 
-extern unsigned dsp_debug_flag;
-#define DSP_PRNT(fmt,args...) if(dsp_debug_flag)printk(KERN_INFO "[dsp]" fmt,##args)
+#define DSP_PRNT(fmt,args...) printk(KERN_INFO "[dsp]" fmt,##args)
 #endif
 
 

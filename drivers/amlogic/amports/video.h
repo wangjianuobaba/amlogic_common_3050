@@ -21,6 +21,7 @@
 
 #ifndef VIDEO_H
 #define VIDEO_H
+#include <mach/cpu.h>
 
 enum {
     VIDEO_WIDEOPTION_NORMAL           = 0,

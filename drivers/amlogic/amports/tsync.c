@@ -175,7 +175,6 @@ extern void set_timestamp_inc_factor(u32 factor);
 extern int pts_cached_time(u8 type);
 #endif
 
-extern int get_vsync_pts_inc_mode(void);
 
 static void tsync_pcr_recover_with_audio(void)
 {
@@ -480,7 +479,7 @@ static void tsync_state_switch_timer_fun(unsigned long arg)
 }
 void tsync_mode_reinit(void)
 {
-	tsync_av_mode=TSYNC_STATE_S;
+	tsync_av_mode==TSYNC_STATE_S;
     tsync_av_dynamic_duration_ms=0;
     return ;
 }
@@ -492,13 +491,10 @@ void tsync_avevent_locked(avevent_t event, u32 param)
     switch (event) {
     case VIDEO_START:
         tsync_video_started = 1;
-        if (tsync_enable && !get_vsync_pts_inc_mode()) {
+        if (tsync_enable) {
             tsync_mode = TSYNC_MODE_AMASTER;
         } else {
             tsync_mode = TSYNC_MODE_VMASTER;
-            if (get_vsync_pts_inc_mode()) {
-                tsync_stat = TSYNC_STAT_PCRSCR_SETUP_NONE;
-            }
         }
 
         if (tsync_dec_reset_flag) {
@@ -872,15 +868,9 @@ int tsync_set_apts(unsigned pts)
 
   	if(tsync_mode == TSYNC_MODE_AMASTER)
    		t = timestamp_pcrscr_get();
-    if( tsync_mode == TSYNC_MODE_AMASTER ) {
-        if (get_vsync_pts_inc_mode()
-          && (((int)(timestamp_apts_get()-t)>(int)100*TIME_UNIT90K/1000) || (int)(t - timestamp_apts_get())>(int)2*TIME_UNIT90K)){
-            printk("[%d]reset apts:0x%x-->0x%x, pcr 0x%x, diff %d\n",__LINE__,oldpts,pts,t,pts-t);
-            timestamp_pcrscr_set(pts+TIME_UNIT90K/5);
-        } else if ((!get_vsync_pts_inc_mode()) && (abs(timestamp_apts_get()-t)>100*TIME_UNIT90K/1000)) {
-            printk("[%d]reset apts:0x%x-->0x%x, pcr 0x%x, diff %d\n",__LINE__,oldpts,pts,t,pts-t);
-            timestamp_pcrscr_set(pts);
-        }
+    if( tsync_mode == TSYNC_MODE_AMASTER && abs(timestamp_apts_get()-t)>100*TIME_UNIT90K/1000){
+    	printk("reset apts:%d-->%d\n",oldpts,pts);
+        timestamp_pcrscr_set(pts);		
     }else if(oldmod!=tsync_mode && tsync_mode==TSYNC_MODE_VMASTER){
 	timestamp_pcrscr_set(timestamp_vpts_get());
     }

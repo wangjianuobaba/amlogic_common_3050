@@ -32,11 +32,13 @@
 #include <linux/amports/vframe.h>
 #include <linux/amports/vframe_provider.h>
 #include <linux/amports/vframe_receiver.h>
+#include <linux/amports/vformat.h>
 #include <linux/workqueue.h>
 #include <linux/dma-mapping.h>
 #include <asm/atomic.h>
 #include <plat/io.h>
 
+#include "vdec.h"
 #include "vdec_reg.h"
 #include "amvdec.h"
 #include "vh264_mc.h"
@@ -173,8 +175,7 @@ static u32 h264_pts_count, duration_from_pts_done;
 static u32 vh264_error_count;
 static u32 vh264_no_disp_count;
 static u32 fatal_error_flag;
-static u32 fatal_error_reset = 1;
-static u32 max_refer_buf = 1;
+static u32 fatal_error_reset = 0;
 #if 0
 static u32 vh264_no_disp_wd_count;
 #endif
@@ -202,6 +203,23 @@ static DEFINE_SPINLOCK(lock);
 
 static int vh264_stop(void);
 static s32 vh264_init(void);
+
+#define DFS_HIGH_THEASHOLD 3
+static inline int fifo_level(void)
+{
+    int level = get_ptr - fill_ptr;
+
+    if (level < 0) {
+        level += VF_POOL_SIZE;
+    }
+
+    return level;
+}
+
+static void vdec_dfs(void)
+{
+    vdec_power_mode((fifo_level() > DFS_HIGH_THEASHOLD) ? 0 : 1);
+}
 
 void spec_set_canvas(buffer_spec_t *spec,
                      unsigned width,
@@ -291,6 +309,8 @@ static vframe_t *vh264_vf_get(void* op_arg)
     }
 
     INCPTR(get_ptr);
+
+    vdec_dfs();
 
     return vf;
 }
@@ -492,7 +512,7 @@ static void vh264_set_params(void)
             max_dpb_size = 16;
         }
 
-        if (max_refer_buf && (max_reference_size < max_dpb_size)) {
+        if (max_reference_size < max_dpb_size) {
             max_reference_size = max_dpb_size + 1;
         } else {
             max_dpb_size = max_reference_size;
@@ -524,6 +544,10 @@ static void vh264_set_params(void)
             max_reference_size = (frame_buffer_size - mb_total * 384 * actual_dpb_size) / (mb_total * mb_mv_byte);
         }
     }
+
+	if (actual_dpb_size > 24) {
+		actual_dpb_size = 24;
+	}
 
     if (!(READ_VREG(AV_SCRATCH_F) & 0x1)) {
         addr = buf_start;
@@ -1014,6 +1038,7 @@ static void vh264_isr(void)
             }
         }
 
+        vdec_dfs();
         WRITE_VREG(AV_SCRATCH_0, 0);
     } else if ((cpu_cmd & 0xff) == 3) {
         vh264_running = 1;
@@ -1039,8 +1064,8 @@ static void vh264_isr(void)
         fatal_error_flag = 0x10;
         // this is fatal error, need restart
         printk("fatal error happend\n");
-	if(!fatal_error_reset)
-        schedule_work(&error_wd_work);
+        if (!fatal_error_reset)
+	        schedule_work(&error_wd_work);
     }
 
 #ifdef HANDLE_H264_IRQ
@@ -1081,7 +1106,6 @@ static void vh264_put_timer_func(unsigned long arg)
     vh264_isr();
 #endif
 
-    //printk("decoded frame %d\n", READ_MPEG_REG(AV_SCRATCH_H));
     if (vh264_stream_switching || vh264_stream_new) {
         wait_buffer_counter = 0;
     } else {
@@ -1541,15 +1565,11 @@ static void stream_switching_do(struct work_struct *work)
         ulong videoKeepBuf[3], videoKeepBufPhys[3];
 
         get_video_keep_buffer(videoKeepBuf, videoKeepBufPhys);
-#ifdef NV21
-        if (!videoKeepBuf[0] || !videoKeepBuf[1]) {
-            do_copy = false;
-        }
-#else
+
         if (!videoKeepBuf[0] || !videoKeepBuf[1] || !videoKeepBuf[2]) {
             do_copy = false;
         }
-#endif
+
         spin_lock_irqsave(&lock, flags);
 
         /* lock to make sure last_ptr is valid when vh264_stream_switching is 1 */
@@ -1725,8 +1745,6 @@ module_param(dec_control, uint, 0664);
 MODULE_PARM_DESC(dec_control, "\n amvdec_h264 decoder control \n");
 module_param(fatal_error_reset, uint, 0664);
 MODULE_PARM_DESC(fatal_error_reset, "\n amvdec_h264 decoder reset when fatal error happens \n");
-module_param(max_refer_buf, uint, 0664);
-MODULE_PARM_DESC(max_refer_buf, "\n amvdec_h264 decoder buffering or not for reference frame \n");
 module_init(amvdec_h264_driver_init_module);
 module_exit(amvdec_h264_driver_remove_module);
 
